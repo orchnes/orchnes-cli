@@ -3,6 +3,9 @@
 All notable changes to `orchnes` are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Changed
+- Repository moved to the `orchnesai` organization: links, badges and install commands now use `github.com/orchnesai/...` (old `github.com/orchnes/...` links redirect).
+
 ### Fixed
 - `orchnes models` output and internal naming no longer look like credential logging (CodeQL `rust/cleartext-logging`, alert #1). Only the environment variable's name and whether it is set were ever printed; the config field stays `api_key_env`.
 

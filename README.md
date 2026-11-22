@@ -1,17 +1,17 @@
 # orchnes — Orchnes 360 CLI
 
-[![CI](https://github.com/orchnes/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnes/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange)
+[![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 
-`orchnes` is the command-line companion of [**Orchnes 360**](https://github.com/orchnes/orchnes-360), a library of [Agent Skills](https://agentskills.io)
+`orchnes` is the command-line companion of [**Orchnes 360**](https://github.com/orchnesai/orchnes-360), a library of [Agent Skills](https://agentskills.io)
 (skill folders, each with a `SKILL.md` and an optional `references/` folder). It installs skills into any AI agent, validates them,
 exports them to other agents' instruction formats, routes tasks to model tiers, and calls hosted or local models through one gateway.
 
-It is the first step of the **runtime layer** in the Orchnes 360 [`ROADMAP.md`](https://github.com/orchnes/orchnes-360/blob/main/ROADMAP.md):
+It is the first step of the **runtime layer** in the Orchnes 360 [`ROADMAP.md`](https://github.com/orchnesai/orchnes-360/blob/main/ROADMAP.md):
 the skills hold the knowledge; the runtime runs them across models.
 
 ```sh
-cargo install --git https://github.com/orchnes/orchnes-cli
-git clone https://github.com/orchnes/orchnes-360 && cd orchnes-360
+cargo install --git https://github.com/orchnesai/orchnes-cli
+git clone https://github.com/orchnesai/orchnes-360 && cd orchnes-360
 orchnes install --target agents      # Codex, Cursor, Copilot, Gemini CLI, Windsurf read .agents/skills/
 orchnes ask --tier T2 "Plan a newsletter signup feature"
 ```
@@ -159,4 +159,4 @@ Integration tests run the binary against temporary fixtures. `tests/gateway_http
 
 ## License
 
-MIT © Ömer Faruk Alibal · [Orchnes](https://github.com/orchnes). See [LICENSE](LICENSE). Changes: [CHANGELOG.md](CHANGELOG.md). Security: [SECURITY.md](SECURITY.md).
+MIT © Ömer Faruk Alibal · [Orchnes](https://github.com/orchnesai). See [LICENSE](LICENSE). Changes: [CHANGELOG.md](CHANGELOG.md). Security: [SECURITY.md](SECURITY.md).
