@@ -15,9 +15,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The skills library, so integration tests also run against the real 26 skills.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: orchnes/orchnes-360
           path: orchnes-360
