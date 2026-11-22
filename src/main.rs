@@ -165,10 +165,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Models { config } => {
             let cfg = gateway::load_config(&config)?;
             for m in &cfg.models {
-                let key = match &m.api_key_env {
-                    Some(var) if env_set(var) => format!("key {var}: set"),
-                    Some(var) => format!("key {var}: MISSING"),
-                    None => "no key".into(),
+                // Report only whether the named variable is set — never read or print its value.
+                let credential_status = match &m.credential_env {
+                    Some(var) if env_set(var) => format!("env {var}: set"),
+                    Some(var) => format!("env {var}: MISSING"),
+                    None => "no credential".into(),
                 };
                 let place = if m.local {
                     "local"
@@ -178,7 +179,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     "hosted"
                 };
                 println!(
-                    "{:<20} {}  {:<9} {:<9} {:<28} {key}",
+                    "{:<20} {}  {:<9} {:<9} {:<28} {credential_status}",
                     m.id,
                     m.tier,
                     format!("{:?}", m.provider).to_lowercase(),

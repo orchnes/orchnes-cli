@@ -109,7 +109,7 @@ Two adapters cover most models:
 ```sh
 cp orchnes.example.yaml orchnes.yaml          # edit models, tiers, prices
 export ANTHROPIC_API_KEY=...                    # keys only via the env vars named in the config
-orchnes models                                 # tier, provider, local/hosted, key set/MISSING (never the value)
+orchnes models                                 # tier, provider, local/hosted, credential env var set/MISSING (never the value)
 orchnes ask --tier T2 "Summarize this in 3 bullets: ..."
 orchnes ask --complexity 2 --risk 3 --context 1 --capability 2 --skill security-operations "Review this config: ..."
 orchnes ask --tier T3 --sensitive - < patient-notes.txt   # only local/compliant models

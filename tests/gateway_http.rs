@@ -214,7 +214,7 @@ fn dry_run_and_models_never_print_keys() {
 
     let o = orchnes(&["models", "--config", cfg.to_str().unwrap()], &envs);
     let out = text(&o.stdout);
-    assert!(out.contains("key SECRET_KEY_VAR: set"), "{out}");
-    assert!(out.contains("key OTHER_KEY_VAR: MISSING"), "{out}");
+    assert!(out.contains("env SECRET_KEY_VAR: set"), "{out}");
+    assert!(out.contains("env OTHER_KEY_VAR: MISSING"), "{out}");
     assert!(!out.contains("sk-should-not-appear"));
 }

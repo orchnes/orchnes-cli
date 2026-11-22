@@ -37,9 +37,10 @@ pub struct ModelSpec {
     /// Model name sent to the provider.
     pub model: String,
     pub tier: Tier,
-    /// Environment variable holding the API key; omit for keyless local servers.
-    #[serde(default)]
-    pub api_key_env: Option<String>,
+    /// Name of the environment variable that holds the credential (YAML: `api_key_env`);
+    /// omit for keyless local servers. Only the variable's name is stored, never its value.
+    #[serde(default, rename = "api_key_env")]
+    pub credential_env: Option<String>,
     /// Runs on infrastructure you control (allowed for sensitive work).
     #[serde(default)]
     pub local: bool,
@@ -355,7 +356,7 @@ pub fn complete(
     }
     let mut attempts = Vec::new();
     for spec in models {
-        let key = match &spec.api_key_env {
+        let key = match &spec.credential_env {
             Some(var) => match env(var).filter(|k| !k.is_empty()) {
                 Some(k) => Some(k),
                 None => {
@@ -395,7 +396,7 @@ mod tests {
             base_url: "https://example.test/v1/".into(),
             model: format!("{id}-model"),
             tier,
-            api_key_env: None,
+            credential_env: None,
             local: false,
             compliant: false,
             price_in: None,
@@ -565,7 +566,7 @@ mod tests {
     #[test]
     fn falls_back_and_skips_missing_keys() {
         let mut keyed = spec("keyed", Provider::Openai, Tier::T2);
-        keyed.api_key_env = Some("NO_SUCH_KEY".into());
+        keyed.credential_env = Some("NO_SUCH_KEY".into());
         let cfg = Config {
             models: vec![
                 keyed,
