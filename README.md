@@ -1,6 +1,6 @@
 # orchnes — Orchnes 360 CLI
 
-[![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange)
+[![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/orchnesai/orchnes-cli/badge)](https://scorecard.dev/viewer/?uri=github.com/orchnesai/orchnes-cli)
 
 `orchnes` is the command-line companion of [**Orchnes 360**](https://github.com/orchnesai/orchnes-360), a library of [Agent Skills](https://agentskills.io)
 (skill folders, each with a `SKILL.md` and an optional `references/` folder). It installs skills into any AI agent, validates them,
