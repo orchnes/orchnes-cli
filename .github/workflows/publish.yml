@@ -1,17 +1,33 @@
-# Manual release to crates.io. Requires the CARGO_REGISTRY_TOKEN repository
-# secret (a crates.io API token scoped to publish-update for the `orchnes` crate).
+# Autonomous release to crates.io via Trusted Publishing (OIDC): no stored token.
+# A release happens when the version in Cargo.toml is not yet on crates.io:
+#   - merge a PR that bumps `version` in Cargo.toml (push to main), or
+#   - push a tag vX.Y.Z that matches Cargo.toml, or
+#   - run this workflow manually.
+# It then publishes the crate and creates the GitHub Release vX.Y.Z.
+# crates.io trusts only this file (publish.yml) in the `crates-io` environment.
 name: Publish to crates.io
 
 on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+    tags: ["v*.*.*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: publish-crates-io
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: crates-io
+    permissions:
+      contents: write # create the GitHub Release and its tag
+      id-token: write # crates.io trusted publishing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -19,6 +35,54 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
-      - run: cargo publish --locked
+
+      - name: Decide whether this version needs publishing
+        id: meta
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="orchnes") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -A "orchnes-cli-release (https://github.com/orchnesai/orchnes-cli)" \
+            "https://crates.io/api/v1/crates/orchnes/$version")
+          if [ "$status" = "200" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "orchnes $version is already on crates.io; nothing to publish."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "orchnes $version is not on crates.io yet; publishing."
+          fi
+
+      - name: Verify the package builds as crates.io will receive it
+        if: steps.meta.outputs.publish == 'true'
+        run: cargo publish --dry-run --locked
+
+      - name: Get a short-lived crates.io token (OIDC)
+        if: steps.meta.outputs.publish == 'true'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish
+        if: steps.meta.outputs.publish == 'true'
+        run: cargo publish --locked
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      - name: Create the GitHub Release
+        if: steps.meta.outputs.publish == 'true' || github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists."
+          else
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --title "$tag" \
+              --target "$GITHUB_SHA" --generate-notes
+          fi

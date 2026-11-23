@@ -1,6 +1,6 @@
 # orchnes — Orchnes 360 CLI
 
-[![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/orchnesai/orchnes-cli/badge)](https://scorecard.dev/viewer/?uri=github.com/orchnesai/orchnes-cli)
+[![crates.io](https://img.shields.io/crates/v/orchnes.svg)](https://crates.io/crates/orchnes) [![Downloads](https://img.shields.io/crates/d/orchnes.svg)](https://crates.io/crates/orchnes) [![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/orchnesai/orchnes-cli/badge)](https://scorecard.dev/viewer/?uri=github.com/orchnesai/orchnes-cli)
 
 `orchnes` is the command-line companion of [**Orchnes 360**](https://github.com/orchnesai/orchnes-360), a library of [Agent Skills](https://agentskills.io)
 (skill folders, each with a `SKILL.md` and an optional `references/` folder). It installs skills into any AI agent, validates them,
@@ -10,7 +10,7 @@ It is the first step of the **runtime layer** in the Orchnes 360 [`ROADMAP.md`](
 the skills hold the knowledge; the runtime runs them across models.
 
 ```sh
-cargo install --git https://github.com/orchnesai/orchnes-cli
+cargo install orchnes
 git clone https://github.com/orchnesai/orchnes-360 && cd orchnes-360
 orchnes install --target agents      # Codex, Cursor, Copilot, Gemini CLI, Windsurf read .agents/skills/
 orchnes ask --tier T2 "Plan a newsletter signup feature"
@@ -18,7 +18,17 @@ orchnes ask --tier T2 "Plan a newsletter signup feature"
 
 ## Install
 
+From [crates.io](https://crates.io/crates/orchnes):
+
 ```sh
+cargo install orchnes
+```
+
+From source (latest `main`):
+
+```sh
+cargo install --git https://github.com/orchnesai/orchnes-cli
+# or, inside a clone
 cargo install --path .
 ```
 
@@ -156,6 +166,10 @@ Integration tests run the binary against temporary fixtures. `tests/gateway_http
 - **24/7 scheduling**: long-running and scheduled runs with a kill switch.
 - **Agent messaging**: a structured task board or queue between agents, plus notifications.
 - **Audit log**: `ask --log` writes run-log lines; still to do for every dispatched task in a multi-agent run.
+
+## Releasing
+
+Releases are automatic. Bump `version` in `Cargo.toml` (and add a `CHANGELOG.md` entry) in a pull request; when it merges to `main`, [`publish.yml`](.github/workflows/publish.yml) publishes the new version to [crates.io](https://crates.io/crates/orchnes) through Trusted Publishing (no stored token) and creates the matching GitHub Release `vX.Y.Z`. Versions already on crates.io are skipped.
 
 ## License
 
