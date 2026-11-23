@@ -30,3 +30,5 @@ jobs:
       - run: cargo test
         env:
           ORCHNES_SKILLS_DIR: ${{ github.workspace }}/orchnes-360/skills
+      # Proves the crate packages and builds exactly as crates.io would receive it.
+      - run: cargo publish --dry-run --locked
