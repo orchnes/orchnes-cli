@@ -10,6 +10,8 @@ homepage = "https://orchnes.com"
 keywords = ["agent-skills", "ai-agents", "llm", "orchestration", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
+# CI checks out orchnes-360 here for integration tests; it is never part of the crate.
+exclude = ["/orchnes-360", "/.github"]
 
 [[bin]]
 name = "orchnes"
