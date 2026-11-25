@@ -5,9 +5,9 @@
 #   - run this workflow manually from main (also completes a partial release).
 # Publishing runs only from main or a v* tag; the dry_run input (any branch) builds
 # and tests binaries without publishing anything.
-# Binaries are built from the version's tag when it exists, so a re-run never ships
-# code that differs from the crates.io release. Published release assets are never
-# overwritten.
+# Every job builds the triggering commit. If the version is already tagged, publishing
+# is refused unless the run is for that tag commit, so a re-run never ships code that
+# differs from the release. Published release assets are never overwritten.
 # crates.io: Trusted Publishing (OIDC), environment `crates-io` (main, v* only).
 # npm: Trusted Publishing (OIDC) with provenance, environment `npm` (main, v* only);
 # the NPM_TOKEN environment secret is used only if present (first publish).
@@ -37,7 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      ref: ${{ steps.meta.outputs.ref }}
       crates: ${{ steps.meta.outputs.crates }}
       npm: ${{ steps.meta.outputs.npm }}
       release: ${{ steps.meta.outputs.release }}
@@ -64,13 +63,13 @@ jobs:
           if [ "$DRY_RUN" != "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
             echo "::error::Publishing runs only from main or a v* tag (got $GITHUB_REF); use dry_run elsewhere"; exit 1
           fi
-          # Build from the version's tag when it already exists, else from this commit.
+          # An existing tag pins the release to its commit: never publish other code under it.
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            ref=$(git rev-list -n1 "v$version")
-          else
-            ref="$GITHUB_SHA"
+            tagged=$(git rev-list -n1 "v$version")
+            if [ "$DRY_RUN" != "true" ] && [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::error::v$version is tagged at $tagged but this run is $GITHUB_SHA; bump the version in Cargo.toml, or run this workflow from the tag v$version"; exit 1
+            fi
           fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
           # Only a definite 404 means "not published"; anything else stops the run.
           missing() { case "$1" in 200) echo false;; 404) echo true;; *) echo "::error::$2 returned HTTP $1" >&2; return 1;; esac; }
           ua="orchnes-cli-release (https://github.com/orchnesai/orchnes-cli)"
@@ -86,7 +85,7 @@ jobs:
           echo "crates=$crates" >> "$GITHUB_OUTPUT"
           echo "npm=$npm" >> "$GITHUB_OUTPUT"
           echo "release=$([ "$assets" -ge 6 ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
-          echo "orchnes $version from $ref: crates.io missing=$crates, npm missing=$npm, release assets=$assets, dry_run=$DRY_RUN"
+          echo "orchnes $version at $GITHUB_SHA: crates.io missing=$crates, npm missing=$npm, release assets=$assets, dry_run=$DRY_RUN"
 
   crates:
     needs: plan
@@ -100,7 +99,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.ref }}
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
@@ -129,7 +127,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.ref }}
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
@@ -172,12 +169,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.version }}
-          REF: ${{ needs.plan.outputs.ref }}
         run: |
           set -euo pipefail
           tag="v$VERSION"
           if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$tag" -R "$GITHUB_REPOSITORY" --title "$tag" --target "$REF" --generate-notes
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --title "$tag" --target "$GITHUB_SHA" --generate-notes
           fi
           existing=$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
           if printf '%s\n' "$existing" | grep -qx SHA256SUMS; then
@@ -200,7 +196,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
