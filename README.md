@@ -1,6 +1,6 @@
 # orchnes — Orchnes 360 CLI
 
-[![crates.io](https://img.shields.io/crates/v/orchnes.svg)](https://crates.io/crates/orchnes) [![Downloads](https://img.shields.io/crates/d/orchnes.svg)](https://crates.io/crates/orchnes) [![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/orchnesai/orchnes-cli/badge)](https://scorecard.dev/viewer/?uri=github.com/orchnesai/orchnes-cli)
+[![npm](https://img.shields.io/npm/v/orchnes.svg)](https://www.npmjs.com/package/orchnes) [![crates.io](https://img.shields.io/crates/v/orchnes.svg)](https://crates.io/crates/orchnes) [![Downloads](https://img.shields.io/crates/d/orchnes.svg)](https://crates.io/crates/orchnes) [![CI](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/orchnesai/orchnes-cli/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-2024-orange) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/orchnesai/orchnes-cli/badge)](https://scorecard.dev/viewer/?uri=github.com/orchnesai/orchnes-cli)
 
 `orchnes` is the command-line companion of [**Orchnes 360**](https://github.com/orchnesai/orchnes-360), a library of [Agent Skills](https://agentskills.io)
 (skill folders, each with a `SKILL.md` and an optional `references/` folder). It installs skills into any AI agent, validates them,
@@ -18,11 +18,20 @@ orchnes ask --tier T2 "Plan a newsletter signup feature"
 
 ## Install
 
+From [npm](https://www.npmjs.com/package/orchnes) (prebuilt binary, no Rust needed):
+
+```sh
+npx orchnes --help
+npm install -g orchnes
+```
+
 From [crates.io](https://crates.io/crates/orchnes):
 
 ```sh
 cargo install orchnes
 ```
+
+Prebuilt binaries for Linux (x64/arm64), macOS (x64/arm64) and Windows (x64) are also attached to each [GitHub Release](https://github.com/orchnesai/orchnes-cli/releases) with `SHA256SUMS`.
 
 From source (latest `main`):
 
@@ -169,7 +178,7 @@ Integration tests run the binary against temporary fixtures. `tests/gateway_http
 
 ## Releasing
 
-Releases are automatic. Bump `version` in `Cargo.toml` (and add a `CHANGELOG.md` entry) in a pull request; when it merges to `main`, [`publish.yml`](.github/workflows/publish.yml) publishes the new version to [crates.io](https://crates.io/crates/orchnes) through Trusted Publishing (no stored token) and creates the matching GitHub Release `vX.Y.Z`. Versions already on crates.io are skipped.
+Releases are automatic. Bump `version` in `Cargo.toml` (and add a `CHANGELOG.md` entry) in a pull request; when it merges to `main`, [`publish.yml`](.github/workflows/publish.yml) publishes the new version to [crates.io](https://crates.io/crates/orchnes), builds binaries for five platforms, creates the GitHub Release `vX.Y.Z` with `SHA256SUMS`, and publishes the npm launcher, all through Trusted Publishing (no stored tokens). Steps already done for a version are skipped, so re-running the workflow completes a partial release.
 
 ## License
 

@@ -1,11 +1,17 @@
-# Autonomous release to crates.io via Trusted Publishing (OIDC): no stored token.
-# A release happens when the version in Cargo.toml is not yet on crates.io:
+# Autonomous release: crates.io, prebuilt binaries + GitHub Release, and npm.
+# It runs when the version in Cargo.toml is not yet published:
 #   - merge a PR that bumps `version` in Cargo.toml (push to main), or
 #   - push a tag vX.Y.Z that matches Cargo.toml, or
-#   - run this workflow manually.
-# It then publishes the crate and creates the GitHub Release vX.Y.Z.
-# crates.io trusts only this file (publish.yml) in the `crates-io` environment.
-name: Publish to crates.io
+#   - run this workflow manually from main (also completes a partial release).
+# Publishing runs only from main or a v* tag; the dry_run input (any branch) builds
+# and tests binaries without publishing anything.
+# Every job builds the triggering commit. If the version is already tagged, publishing
+# is refused unless the run is for that tag commit, so a re-run never ships code that
+# differs from the release. Published release assets are never overwritten.
+# crates.io: Trusted Publishing (OIDC), environment `crates-io` (main, v* only).
+# npm: Trusted Publishing (OIDC) with provenance, environment `npm` (main, v* only);
+# the NPM_TOKEN environment secret is used only if present (first publish).
+name: Publish
 
 on:
   push:
@@ -13,20 +19,81 @@ on:
     paths: [Cargo.toml]
     tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and test binaries only; publish nothing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-crates-io
+  group: publish-release
   cancel-in-progress: false
 
 jobs:
-  publish:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      crates: ${{ steps.meta.outputs.crates }}
+      npm: ${{ steps.meta.outputs.npm }}
+      release: ${{ steps.meta.outputs.release }}
+      dry_run: ${{ steps.meta.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Decide what needs publishing
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          set -euo pipefail
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ -n "$version" ] || { echo "::error::no version in Cargo.toml"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"; exit 1
+          fi
+          if [ "$DRY_RUN" != "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "::error::Publishing runs only from main or a v* tag (got $GITHUB_REF); use dry_run elsewhere"; exit 1
+          fi
+          # An existing tag pins the release to its commit: never publish other code under it.
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            tagged=$(git rev-list -n1 "v$version")
+            if [ "$DRY_RUN" != "true" ] && [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::error::v$version is tagged at $tagged but this run is $GITHUB_SHA; bump the version in Cargo.toml, or run this workflow from the tag v$version"; exit 1
+            fi
+          fi
+          # Only a definite 404 means "not published"; anything else stops the run.
+          missing() { case "$1" in 200) echo false;; 404) echo true;; *) echo "::error::$2 returned HTTP $1" >&2; return 1;; esac; }
+          ua="orchnes-cli-release (https://github.com/orchnesai/orchnes-cli)"
+          crates=$(missing "$(curl -s -o /dev/null -w '%{http_code}' -A "$ua" "https://crates.io/api/v1/crates/orchnes/$version")" crates.io)
+          npm=$(missing "$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/orchnes/$version")" npm)
+          if out=$(gh release view "v$version" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets|length' 2>&1); then
+            assets=$out
+          elif printf '%s' "$out" | grep -qi 'release not found'; then
+            assets=0
+          else
+            echo "::error::cannot read release v$version: $out"; exit 1
+          fi
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
+          echo "npm=$npm" >> "$GITHUB_OUTPUT"
+          echo "release=$([ "$assets" -ge 6 ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+          echo "orchnes $version at $GITHUB_SHA: crates.io missing=$crates, npm missing=$npm, release assets=$assets, dry_run=$DRY_RUN"
+
+  crates:
+    needs: plan
+    if: needs.plan.outputs.crates == 'true' && needs.plan.outputs.dry_run != 'true'
     runs-on: ubuntu-latest
     environment: crates-io
     permissions:
-      contents: write # create the GitHub Release and its tag
+      contents: read
       id-token: write # crates.io trusted publishing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,54 +102,134 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
-
-      - name: Decide whether this version needs publishing
-        id: meta
-        run: |
-          set -euo pipefail
-          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="orchnes") | .version')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
-            exit 1
-          fi
-          status=$(curl -s -o /dev/null -w '%{http_code}' \
-            -A "orchnes-cli-release (https://github.com/orchnesai/orchnes-cli)" \
-            "https://crates.io/api/v1/crates/orchnes/$version")
-          if [ "$status" = "200" ]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "orchnes $version is already on crates.io; nothing to publish."
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "orchnes $version is not on crates.io yet; publishing."
-          fi
-
-      - name: Verify the package builds as crates.io will receive it
-        if: steps.meta.outputs.publish == 'true'
-        run: cargo publish --dry-run --locked
-
+      - run: cargo publish --dry-run --locked
       - name: Get a short-lived crates.io token (OIDC)
-        if: steps.meta.outputs.publish == 'true'
         id: auth
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish
-        if: steps.meta.outputs.publish == 'true'
-        run: cargo publish --locked
+      - run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
-      - name: Create the GitHub Release
-        if: steps.meta.outputs.publish == 'true' || github.ref_type == 'tag'
+  binaries:
+    needs: plan
+    if: needs.plan.outputs.dry_run == 'true' || needs.plan.outputs.release == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: x86_64-unknown-linux-musl, ext: ""}
+          - {os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, ext: ""}
+          - {os: macos-latest, target: aarch64-apple-darwin, ext: ""}
+          - {os: macos-latest, target: x86_64-apple-darwin, ext: ""}
+          - {os: windows-latest, target: x86_64-pc-windows-msvc, ext: ".exe"}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update -q && sudo apt-get install -y -q musl-tools
+      - name: Build
+        shell: bash
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }}
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/orchnes${{ matrix.ext }}" "dist/orchnes-${{ matrix.target }}${{ matrix.ext }}"
+      - name: Smoke test
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: ./dist/orchnes-${{ matrix.target }}${{ matrix.ext }} --version
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orchnes-${{ matrix.target }}
+          path: dist/orchnes-${{ matrix.target }}${{ matrix.ext }}
+          if-no-files-found: error
+          retention-days: 5
+
+  release:
+    needs: [plan, binaries, crates]
+    if: always() && needs.plan.outputs.dry_run != 'true' && needs.plan.outputs.release == 'true' && needs.binaries.result == 'success' && needs.crates.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release and upload missing assets
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          pattern: orchnes-*
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum orchnes-* > SHA256SUMS && cat SHA256SUMS
+      - name: Create the release and upload only missing assets
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           tag="v$VERSION"
-          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $tag already exists."
-          else
-            gh release create "$tag" -R "$GITHUB_REPOSITORY" --title "$tag" \
-              --target "$GITHUB_SHA" --generate-notes
+          if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --title "$tag" --target "$GITHUB_SHA" --generate-notes
           fi
+          existing=$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          if printf '%s\n' "$existing" | grep -qx SHA256SUMS; then
+            # A published checksum file is authoritative: new builds must not replace it.
+            echo "::error::$tag already has SHA256SUMS but is missing binaries; fix the release by hand"; exit 1
+          fi
+          for f in dist/*; do
+            printf '%s\n' "$existing" | grep -qx "$(basename "$f")" || gh release upload "$tag" "$f" -R "$GITHUB_REPOSITORY"
+          done
+
+  npm:
+    needs: [plan, release]
+    if: always() && needs.plan.outputs.dry_run != 'true' && needs.plan.outputs.npm == 'true' && (needs.release.result == 'success' || (needs.release.result == 'skipped' && needs.plan.outputs.release == 'false'))
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Fetch the published checksums
+        working-directory: npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" -p SHA256SUMS
+      - name: Stamp version and checksums
+        working-directory: npm
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync("package.json","utf8"));p.version=process.env.VERSION;
+            fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n");
+            const sums={};for(const line of fs.readFileSync("SHA256SUMS","utf8").trim().split("\n")){const [h,f]=line.trim().split(/\s+/);sums[f]=h;}
+            if(Object.keys(sums).length!==5)throw Error("expected 5 binaries, got "+Object.keys(sums).length);
+            fs.writeFileSync("checksums.json",JSON.stringify(sums,null,2)+"\n");'
+          rm SHA256SUMS
+          node --test test/*.test.mjs
+          npm pack --dry-run
+      - name: Publish
+        working-directory: npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Trusted publishing (OIDC) needs no token; a token is used only for a first publish.
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+            trap 'rm -f "$HOME/.npmrc"' EXIT
+          fi
+          npm publish --provenance --access public

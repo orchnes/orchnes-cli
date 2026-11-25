@@ -1,0 +1,23 @@
+{
+  "name": "orchnes",
+  "version": "0.0.0",
+  "description": "Orchnes 360 CLI: install, validate, route and export Agent Skills, and call any model through one gateway",
+  "license": "MIT",
+  "author": "Ömer Faruk Alibal",
+  "homepage": "https://orchnes.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orchnesai/orchnes-cli.git"
+  },
+  "bugs": "https://github.com/orchnesai/orchnes-cli/issues",
+  "keywords": ["agent-skills", "ai-agents", "llm", "orchestration", "cli", "claude-code", "codex", "cursor"],
+  "bin": {
+    "orchnes": "bin/orchnes.js"
+  },
+  "files": ["bin/orchnes.js", "checksums.json", "README.md"],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["linux", "darwin", "win32"],
+  "cpu": ["x64", "arm64"]
+}
