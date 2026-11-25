@@ -10,6 +10,7 @@ const path = require('node:path');
 const https = require('node:https');
 const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
+const {pipeline} = require('node:stream');
 
 const pkg = require('../package.json');
 const REPO = 'orchnesai/orchnes-cli';
@@ -41,12 +42,12 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function download(url, dest, redirects = 5) {
+function download(url, dest, redirects = 5, get = https.get) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {headers: {'User-Agent': `orchnes-npm/${pkg.version}`}}, (res) => {
+    const req = get(url, {headers: {'User-Agent': `orchnes-npm/${pkg.version}`}}, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
         res.resume();
-        resolve(download(new URL(res.headers.location, url).href, dest, redirects - 1));
+        resolve(download(new URL(res.headers.location, url).href, dest, redirects - 1, get));
         return;
       }
       if (res.statusCode !== 200) {
@@ -54,10 +55,9 @@ function download(url, dest, redirects = 5) {
         reject(new Error(`download failed (${res.statusCode}) for ${url}`));
         return;
       }
-      const out = fs.createWriteStream(dest, {mode: 0o755});
-      res.pipe(out);
-      out.on('finish', () => out.close(resolve));
-      out.on('error', reject);
+      // pipeline() rejects when the body is cut off mid-transfer (plain pipe() would hang
+      // and let Node exit 0 without running anything).
+      pipeline(res, fs.createWriteStream(dest, {mode: 0o755}), (err) => (err ? reject(err) : resolve()));
     });
     req.on('error', reject);
     req.setTimeout(60000, () => req.destroy(new Error('download timed out')));
@@ -84,7 +84,12 @@ async function ensureBinary() {
     const actual = sha256(tmp);
     if (actual !== expected) throw new Error(`checksum mismatch for ${name}: expected ${expected}, got ${actual}`);
     fs.chmodSync(tmp, 0o755);
-    fs.renameSync(tmp, bin);
+    try {
+      fs.renameSync(tmp, bin);
+    } catch (err) {
+      // Windows cannot replace an .exe another process is running; a verified copy is fine.
+      if (!(fs.existsSync(bin) && sha256(bin) === expected)) throw err;
+    }
   } finally {
     if (fs.existsSync(tmp)) fs.rmSync(tmp, {force: true});
   }
@@ -105,4 +110,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {targetFor, assetName, cacheDir, TARGETS};
+module.exports = {targetFor, assetName, cacheDir, download, TARGETS};
