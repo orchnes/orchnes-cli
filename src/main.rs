@@ -61,6 +61,9 @@ enum Command {
     Ask {
         #[arg(long, default_value = "orchnes.yaml")]
         config: PathBuf,
+        /// Model id from the gateway config; skips tier routing and fallback.
+        #[arg(long)]
+        model: Option<String>,
         /// Model tier; or give all four routing factors instead.
         #[arg(long, value_enum)]
         tier: Option<Tier>,
@@ -190,6 +193,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Command::Ask {
             config,
+            model,
             tier,
             complexity,
             risk,
@@ -203,21 +207,37 @@ fn run(cli: Cli) -> Result<ExitCode> {
             prompt,
         } => {
             let cfg = gateway::load_config(&config)?;
-            let (tier, why) = match (tier, complexity, risk, context, capability) {
-                (Some(t), None, None, None, None) => (t, format!("tier {t} requested")),
-                (None, Some(complexity), Some(risk), Some(context), Some(capability)) => {
-                    let f = Factors {
-                        complexity,
-                        risk,
-                        context,
-                        capability,
-                    };
-                    let r = routing::route(f, sensitive)?;
-                    (r.tier, r.reason)
+            let selection = if let Some(id) = model {
+                if tier.is_some()
+                    || complexity.is_some()
+                    || risk.is_some()
+                    || context.is_some()
+                    || capability.is_some()
+                {
+                    bail!("--model cannot be combined with --tier or routing flags");
                 }
-                _ => bail!(
-                    "give either --tier or all four of --complexity --risk --context --capability"
-                ),
+                AskTarget::Model {
+                    why: format!("model {id} requested"),
+                    id,
+                }
+            } else {
+                let (tier, why) = match (tier, complexity, risk, context, capability) {
+                    (Some(t), None, None, None, None) => (t, format!("tier {t} requested")),
+                    (None, Some(complexity), Some(risk), Some(context), Some(capability)) => {
+                        let f = Factors {
+                            complexity,
+                            risk,
+                            context,
+                            capability,
+                        };
+                        let r = routing::route(f, sensitive)?;
+                        (r.tier, r.reason)
+                    }
+                    _ => bail!(
+                        "give --model, --tier, or all four of --complexity --risk --context --capability"
+                    ),
+                };
+                AskTarget::Tier { tier, why }
             };
             let prompt = if prompt == "-" {
                 let mut s = String::new();
@@ -236,13 +256,23 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 max_tokens,
             };
             if dry_run {
-                let models = gateway::candidates(&cfg, tier, sensitive);
-                let Some(first) = models.first() else {
-                    bail!(gateway::GatewayError::NoCandidate {
-                        tier,
-                        local_only: sensitive
-                    });
+                let (models, why) = match &selection {
+                    AskTarget::Model { id, why } => (
+                        vec![gateway::select_model(&cfg, id, sensitive)?],
+                        why.as_str(),
+                    ),
+                    AskTarget::Tier { tier, why } => {
+                        let models = gateway::candidates(&cfg, *tier, sensitive);
+                        if models.is_empty() {
+                            bail!(gateway::GatewayError::NoCandidate {
+                                tier: *tier,
+                                local_only: sensitive
+                            });
+                        }
+                        (models, why.as_str())
+                    }
                 };
+                let first = models[0];
                 let http = gateway::build(first, &req, Some("<api key>")).redacted();
                 println!("model: {} (tier {}, {why})", first.id, first.tier);
                 println!(
@@ -261,9 +291,20 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 return Ok(ExitCode::SUCCESS);
             }
             let transport = HttpTransport::new(Duration::from_secs(cfg.timeout_secs));
-            let (c, attempts) = gateway::complete(&cfg, &transport, &req, tier, sensitive, &|v| {
-                std::env::var(v).ok()
-            })?;
+            let ((c, attempts), why) = match selection {
+                AskTarget::Model { id, why } => (
+                    gateway::complete_model(&cfg, &transport, &req, &id, sensitive, &|v| {
+                        std::env::var(v).ok()
+                    })?,
+                    why,
+                ),
+                AskTarget::Tier { tier, why } => (
+                    gateway::complete(&cfg, &transport, &req, tier, sensitive, &|v| {
+                        std::env::var(v).ok()
+                    })?,
+                    why,
+                ),
+            };
             for a in &attempts {
                 eprintln!("tried {}: {}", a.model_id, a.error);
             }
@@ -321,6 +362,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+enum AskTarget {
+    Model { id: String, why: String },
+    Tier { tier: Tier, why: String },
 }
 
 fn load_all(dir: &Path) -> Result<Vec<Skill>> {

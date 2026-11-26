@@ -130,6 +130,7 @@ cp orchnes.example.yaml orchnes.yaml          # edit models, tiers, prices
 export ANTHROPIC_API_KEY=...                    # keys only via the env vars named in the config
 orchnes models                                 # tier, provider, local/hosted, credential env var set/MISSING (never the value)
 orchnes ask --tier T2 "Summarize this in 3 bullets: ..."
+orchnes ask --model local-small "Explain RAFT consensus"       # pin a model directly (no fallback)
 orchnes ask --complexity 2 --risk 3 --context 1 --capability 2 --skill security-operations "Review this config: ..."
 orchnes ask --tier T3 --sensitive - < patient-notes.txt   # only local/compliant models
 orchnes ask --tier T1 --dry-run "..."          # print the request (keys masked) without sending
@@ -137,6 +138,7 @@ orchnes ask --tier T2 --log run.log "..."      # append an agent-orchestra run-l
 ```
 
 How it chooses and recovers:
+- **Model** can be pinned directly with `--model <id>` to run against a specific configured model strictly without fallback.
 - **Tier** comes from `--tier` or the routing matrix (`--complexity --risk --context --capability`).
 - **Order**: models of that tier in config order, then higher tiers only (T3 → T2 → T1). A weaker model never silently takes a harder task.
 - **Fallback**: any failure — HTTP error (429, 5xx, 529 overloaded…), timeout, refusal (`stop_reason: refusal`), content filter, empty answer, or an unset key env var — moves on to the next model; every attempt is reported on stderr.

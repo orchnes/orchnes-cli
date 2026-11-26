@@ -84,6 +84,10 @@ pub enum GatewayError {
     Config(String),
     #[error("no configured model for tier {tier}{}", if *.local_only { " that is local or compliant" } else { "" })]
     NoCandidate { tier: Tier, local_only: bool },
+    #[error("unknown model {id:?}")]
+    UnknownModel { id: String },
+    #[error("model {id:?} is not local or compliant")]
+    NotSensitiveSafe { id: String },
     #[error("all models failed:\n{}", attempts.iter().map(|a| format!("  {}: {}", a.model_id, a.error)).collect::<Vec<_>>().join("\n"))]
     AllFailed { attempts: Vec<Attempt> },
 }
@@ -297,6 +301,23 @@ pub fn candidates(cfg: &Config, tier: Tier, local_only: bool) -> Vec<&ModelSpec>
         .collect()
 }
 
+/// Finds a configured model by id, enforcing `local_only` when set.
+pub fn select_model<'a>(
+    cfg: &'a Config,
+    id: &str,
+    local_only: bool,
+) -> Result<&'a ModelSpec, GatewayError> {
+    let spec = cfg
+        .models
+        .iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| GatewayError::UnknownModel { id: id.to_string() })?;
+    if local_only && !spec.local && !spec.compliant {
+        return Err(GatewayError::NotSensitiveSafe { id: id.to_string() });
+    }
+    Ok(spec)
+}
+
 /// One model that was tried and didn't answer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attempt {
@@ -354,6 +375,28 @@ pub fn complete(
     if models.is_empty() {
         return Err(GatewayError::NoCandidate { tier, local_only });
     }
+    complete_models(&models, transport, req, env)
+}
+
+/// Calls a single configured model by id with no fallback.
+pub fn complete_model(
+    cfg: &Config,
+    transport: &dyn Transport,
+    req: &Request,
+    id: &str,
+    local_only: bool,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Completion, Vec<Attempt>), GatewayError> {
+    let spec = select_model(cfg, id, local_only)?;
+    complete_models(&[spec], transport, req, env)
+}
+
+fn complete_models(
+    models: &[&ModelSpec],
+    transport: &dyn Transport,
+    req: &Request,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Completion, Vec<Attempt>), GatewayError> {
     let mut attempts = Vec::new();
     for spec in models {
         let key = match &spec.credential_env {
@@ -602,6 +645,33 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn complete_model_is_strict_and_checks_id_and_sensitivity() {
+        let mut local = spec("local", Provider::Openai, Tier::T3);
+        local.local = true;
+        let cfg = Config {
+            models: vec![spec("hosted", Provider::Openai, Tier::T2), local],
+            timeout_secs: 5,
+        };
+        let mock = Mock::new(vec![Ok((200, OPENAI_OK))]);
+        let (c, attempts) = complete_model(&cfg, &mock, &req(), "local", true, &|_| None).unwrap();
+        assert_eq!(c.model_id, "local");
+        assert!(attempts.is_empty());
+        assert_eq!(mock.seen.borrow().len(), 1);
+
+        // No fallback when the selected model fails, even though `local` is in config.
+        let mock = Mock::new(vec![Ok((529, "{}"))]);
+        let err = complete_model(&cfg, &mock, &req(), "hosted", false, &|_| None).unwrap_err();
+        assert!(matches!(err, GatewayError::AllFailed { ref attempts } if attempts.len() == 1));
+        assert_eq!(mock.seen.borrow().len(), 1);
+
+        let err = complete_model(&cfg, &mock, &req(), "missing", false, &|_| None).unwrap_err();
+        assert!(matches!(err, GatewayError::UnknownModel { .. }));
+
+        let err = complete_model(&cfg, &mock, &req(), "hosted", true, &|_| None).unwrap_err();
+        assert!(matches!(err, GatewayError::NotSensitiveSafe { .. }));
     }
 
     #[test]

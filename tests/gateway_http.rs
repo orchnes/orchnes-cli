@@ -218,3 +218,127 @@ fn dry_run_and_models_never_print_keys() {
     assert!(out.contains("env OTHER_KEY_VAR: MISSING"), "{out}");
     assert!(!out.contains("sk-should-not-appear"));
 }
+
+#[test]
+fn ask_model_is_strict_and_supports_dry_run_and_log() {
+    let (base, rx) = fake_provider(vec![(200, OPENAI_OK), (529, ANTHROPIC_OVERLOADED)]);
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("g.yaml");
+    fs::write(
+        &cfg,
+        format!(
+            "models:\n\
+             \x20 - {{id: first, provider: openai, base_url: '{base}/v1', model: m1, tier: T3, price_in: 1.0, price_out: 2.0}}\n\
+             \x20 - {{id: second, provider: anthropic, base_url: '{base}', model: m2, tier: T2, api_key_env: K}}\n"
+        ),
+    )
+    .unwrap();
+    let cfg_str = cfg.to_str().unwrap();
+
+    // --dry-run shows only the requested model and makes no HTTP request.
+    let o = orchnes(
+        &[
+            "ask",
+            "--config",
+            cfg_str,
+            "--model",
+            "second",
+            "--dry-run",
+            "hi",
+        ],
+        &[("K", "secret")],
+    );
+    let out = text(&o.stdout);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(
+        out.contains("model: second (tier T2, model second requested)"),
+        "{out}"
+    );
+    assert!(out.contains("order: second\n"), "{out}");
+    assert!(!out.contains("first"));
+    assert!(!out.contains("secret"));
+
+    // Successful --model call writes --log with existing format.
+    let log = dir.path().join("run.log");
+    let o = orchnes(
+        &[
+            "ask",
+            "--config",
+            cfg_str,
+            "--model",
+            "first",
+            "--log",
+            log.to_str().unwrap(),
+            "hi",
+        ],
+        &[],
+    );
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert_eq!(text(&o.stdout), "Merhaba!\n");
+    let seen = rx.recv().unwrap();
+    assert_eq!(seen.request_line, "POST /v1/chat/completions HTTP/1.1");
+    let line = fs::read_to_string(&log).unwrap();
+    assert!(
+        line.contains("| ASK | ask | model=first T3 | - | 0 failed before success | 42 tok | $0.000044 | why model first requested"),
+        "{line}"
+    );
+
+    // Failed --model call does not fall back to `first`.
+    let o = orchnes(
+        &["ask", "--config", cfg_str, "--model", "second", "hi"],
+        &[("K", "secret")],
+    );
+    assert!(!o.status.success());
+    let err = text(&o.stderr);
+    assert!(err.contains("second: HTTP 529: Overloaded"), "{err}");
+    assert!(!err.contains("first"), "{err}");
+    let _ = rx.recv().unwrap();
+    assert!(rx.try_recv().is_err(), "no fallback request should be sent");
+}
+
+#[test]
+fn ask_model_rejects_unknown_id_and_routing_conflicts() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("g.yaml");
+    fs::write(
+        &cfg,
+        "models:\n  - {id: local, provider: openai, base_url: 'http://127.0.0.1:9/v1', model: m, tier: T3, local: true}\n",
+    )
+    .unwrap();
+    let cfg_str = cfg.to_str().unwrap();
+
+    let o = orchnes(&["ask", "--config", cfg_str, "--model", "nope", "hi"], &[]);
+    assert!(!o.status.success());
+    assert!(
+        text(&o.stderr).contains("unknown model \"nope\""),
+        "{}",
+        text(&o.stderr)
+    );
+
+    for conflict in [
+        &[
+            "ask", "--config", cfg_str, "--model", "local", "--tier", "T3", "hi",
+        ][..],
+        &[
+            "ask",
+            "--config",
+            cfg_str,
+            "--model",
+            "local",
+            "--complexity",
+            "1",
+            "hi",
+        ][..],
+        &[
+            "ask", "--config", cfg_str, "--model", "local", "--risk", "1", "hi",
+        ][..],
+    ] {
+        let o = orchnes(conflict, &[]);
+        assert!(!o.status.success());
+        assert!(
+            text(&o.stderr).contains("--model cannot be combined with --tier or routing flags"),
+            "{}",
+            text(&o.stderr)
+        );
+    }
+}
